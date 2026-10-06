@@ -1,982 +1,612 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Package, Truck, ShieldCheck, UserCheck, Search, PlusCircle, 
-  Clock, CheckCircle2, AlertCircle, ArrowRight, Bot, Send, 
-  MapPin, RefreshCw, X, Sparkles, Navigation, Phone, Calendar,
-  ArrowUpRight, Check, Printer, KeyRound, ShieldAlert,
-  Compass, Radio, Lock, LogOut, Cpu, Activity, Signal, Bell,
-  User, Key
-} from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
 
-const GPS_ROUTES = {
-  "ST-849201": {
-    origin: { name: "Coimbatore Logistics Hub", lat: 11.0168, lng: 76.9558 },
-    destination: { name: "Bengaluru Tech Park, KA", lat: 12.9716, lng: 77.5946 },
-    waypoints: [
-      { name: "Coimbatore Origin Terminal", lat: 11.0168, lng: 76.9558, progress: 0 },
-      { name: "Tiruppur Bypass Expressway", lat: 11.1085, lng: 77.3411, progress: 20 },
-      { name: "Salem Toll Plaza & Sorting Hub", lat: 11.6643, lng: 78.1460, progress: 48 },
-      { name: "Dharmapuri Corridor Transit Point", lat: 12.1211, lng: 78.1582, progress: 70 },
-      { name: "Hosur Border Inter-State Depot", lat: 12.7409, lng: 77.8253, progress: 90 },
-      { name: "Bengaluru Tech Park Delivery Gate", lat: 12.9716, lng: 77.5946, progress: 100 }
-    ],
-    totalDistanceKm: 365
-  },
-  "ST-592184": {
-    origin: { name: "Chennai Central Hub", lat: 13.0827, lng: 80.2707 },
-    destination: { name: "Madurai South, TN", lat: 9.9252, lng: 78.1198 },
-    waypoints: [
-      { name: "Chennai Sorting Facility", lat: 13.0827, lng: 80.2707, progress: 0 },
-      { name: "Villupuram Highway Junction", lat: 11.9401, lng: 79.4861, progress: 35 },
-      { name: "Trichy Tollway Bypass Hub", lat: 10.7905, lng: 78.7047, progress: 68 },
-      { name: "Madurai Ring Road Hub", lat: 9.9252, lng: 78.1198, progress: 95 },
-      { name: "Madurai South Doorstep Destination", lat: 9.9252, lng: 78.1198, progress: 100 }
-    ],
-    totalDistanceKm: 460
-  }
-};
-
+// Shared Initial Telemetry Consignments
 const INITIAL_SHIPMENTS = [
   {
     id: "ST-849201",
-    sender: "Rahul Sharma",
-    senderId: "cust_1",
-    receiver: "Anita Roy",
-    receiverPhone: "+91 98451 22345",
-    origin: "Coimbatore Logistics Hub",
-    destination: "Bengaluru Tech Park, KA",
+    customerName: "Rahul Sharma",
+    customerPhone: "+91 98451 22104",
+    recipientAddress: "Flat 402, Green Valley Apts, Indiranagar, Bengaluru",
+    origin: "Bengaluru Logistics Hub (BLR-NORTH)",
+    destination: "Indiranagar Delivery Hub",
+    destinationCoords: { lat: 12.9784, lng: 77.6408 },
+    currentCoords: { lat: 13.0358, lng: 77.5970 },
+    totalDistanceKm: 18.5,
+    remainingDistanceKm: 8.4, // Starts outside 5km threshold
+    speedKmh: 48,
     status: "IN_TRANSIT",
-    routeKey: "ST-849201",
-    progressPct: 48,
-    speedKmph: 64,
-    vehicleReg: "TN-38-BZ-4921",
-    assignedDriver: "Karthik Raja (Vehicle Unit 04)",
-    deliveryOtp: "4821",
-    telemetryMode: "AUTOMATED_GPS_SAT",
-    lastPing: "Active (2s ago)",
-    satellitesActive: 9
+    otp: "4821",
+    etaMinutes: 14,
+    assignedCourier: "Vikram Singh (ID: DRV-091)"
   },
   {
     id: "ST-592184",
-    sender: "Rahul Sharma",
-    senderId: "cust_1",
-    receiver: "Kavita Nair",
-    receiverPhone: "+91 94432 99011",
-    origin: "Chennai Central Hub",
-    destination: "Madurai South, TN",
+    customerName: "Ananya Iyer",
+    customerPhone: "+91 94432 88190",
+    recipientAddress: "Plot 18, Cross Cut Road, Gandhipuram, Coimbatore",
+    origin: "Coimbatore Sorting Hub (CJB-EAST)",
+    destination: "Gandhipuram Sector 4",
+    destinationCoords: { lat: 11.0168, lng: 76.9558 },
+    currentCoords: { lat: 11.0195, lng: 76.9621 },
+    totalDistanceKm: 24.0,
+    remainingDistanceKm: 2.1, // Inside 5km doorstep threshold
+    speedKmh: 26,
     status: "OUT_FOR_DELIVERY",
-    routeKey: "ST-592184",
-    progressPct: 95,
-    speedKmph: 28,
-    vehicleReg: "TN-58-AX-9912",
-    assignedDriver: "Suresh Babu (Electric Van 02)",
-    deliveryOtp: "9102",
-    telemetryMode: "AUTOMATED_GPS_SAT",
-    lastPing: "Active (1s ago)",
-    satellitesActive: 11
+    otp: "9102",
+    etaMinutes: 5,
+    assignedCourier: "Suresh Kumar (ID: DRV-044)"
   }
 ];
 
 export default function App() {
-  // Authentication State (null = not logged in)
-  const [authenticatedUser, setAuthenticatedUser] = useState(null);
-  
-  // Login Form States
-  const [loginRole, setLoginRole] = useState('CUSTOMER'); // 'CUSTOMER' | 'DELIVERY' | 'ADMIN'
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState('');
-  const [sessionTimeRemaining, setSessionTimeRemaining] = useState(1800);
-
-  // Application Data States
-  const [shipments, setShipments] = useState(INITIAL_SHIPMENTS);
-  const [searchTrackingId, setSearchTrackingId] = useState('ST-849201');
-  const [searchedShipment, setSearchedShipment] = useState(INITIAL_SHIPMENTS[0]);
-  const [searchError, setSearchError] = useState(false);
-
-  // Proximity Alert Toast State (5 km proximity notification)
-  const [proximityAlert, setProximityAlert] = useState(null);
-
-  // Handover Modal State
-  const [handoverModalShipment, setHandoverModalShipment] = useState(null);
-  const [enteredOtp, setEnteredOtp] = useState('');
-  const [securityError, setSecurityError] = useState('');
-
-  // AI Assistant Chat State
-  const [isAiOpen, setIsAiOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([
-    { sender: 'bot', text: '🔒 Secure GPS Telemetry Assistant initialized. Ask for real-time coordinates or ETA for ST-849201.' }
+  const [userRole, setUserRole] = useState("customer"); // 'customer' | 'courier' | 'admin'
+  const [selectedId, setSelectedId] = useState("ST-849201");
+  const [showWaybill, setShowWaybill] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiChatLog, setAiChatLog] = useState([
+    { sender: "ai", text: "ShipTrack Satellite Copilot online. Ask me about any consignment (e.g., 'Where is ST-849201?')." }
   ]);
-  const [chatInput, setChatInput] = useState('');
 
-  // 1. Continuous Automated GPS Telemetry Engine (No Manual Courier Clicks Required)
+  // Centralized State Persisted in LocalStorage
+  const [shipments, setShipments] = useState(() => {
+    const saved = localStorage.getItem("shiptrack_consignments");
+    return saved ? JSON.parse(saved) : INITIAL_SHIPMENTS;
+  });
+
   useEffect(() => {
-    if (!authenticatedUser) return;
+    localStorage.setItem("shiptrack_consignments", JSON.stringify(shipments));
+  }, [shipments]);
 
-    const timer = setInterval(() => {
-      setShipments(prevShipments => 
+  // Unified GNSS Telemetry Ticker (Runs consistently for all personas)
+  useEffect(() => {
+    const ticker = setInterval(() => {
+      setShipments(prevShipments =>
         prevShipments.map(item => {
-          if (item.status === 'DELIVERED') return item;
-
-          let nextProgress = item.progressPct + 0.15;
-          let currentStatus = item.status;
-
-          if (nextProgress >= 100) {
-            nextProgress = 100;
-          } else if (nextProgress >= 90 && currentStatus === 'IN_TRANSIT') {
-            currentStatus = 'OUT_FOR_DELIVERY';
+          if (item.status === "DELIVERED" || item.remainingDistanceKm <= 0.05) {
+            return item;
           }
 
-          const varianceSpeed = Math.floor(55 + Math.sin(Date.now() / 2000) * 12);
-          const updatedProgress = Math.min(100, parseFloat(nextProgress.toFixed(2)));
+          // Decrement distance realistically
+          const nextDist = Math.max(0, +(item.remainingDistanceKm - 0.15).toFixed(2));
+          const nextEta = Math.max(1, Math.round((nextDist / (item.speedKmh || 40)) * 60));
 
-          // Check for 5 km proximity
-          const route = GPS_ROUTES[item.routeKey];
-          if (route) {
-            const distanceRemainingKm = Math.max(0, Math.round(route.totalDistanceKm * (1 - updatedProgress / 100)));
-            if (distanceRemainingKm <= 5 && distanceRemainingKm > 0 && !proximityAlert) {
-              setProximityAlert({
-                shipmentId: item.id,
-                distanceRemainingKm,
-                message: `Delivery vehicle for consignment ${item.id} is now ${distanceRemainingKm} km from your destination doorstep!`
-              });
-            }
+          // Incrementally nudge coordinates toward destination
+          const latDelta = (item.destinationCoords.lat - item.currentCoords.lat) * 0.012;
+          const lngDelta = (item.destinationCoords.lng - item.currentCoords.lng) * 0.012;
+
+          let updatedStatus = item.status;
+          if (nextDist <= 5.0 && item.status === "IN_TRANSIT") {
+            updatedStatus = "OUT_FOR_DELIVERY";
           }
 
           return {
             ...item,
-            progressPct: updatedProgress,
-            status: currentStatus,
-            speedKmph: updatedProgress >= 100 ? 0 : (updatedProgress >= 90 ? 28 : varianceSpeed),
-            lastPing: 'Active (< 1s ago)'
+            remainingDistanceKm: nextDist,
+            etaMinutes: nextEta,
+            status: updatedStatus,
+            currentCoords: {
+              lat: +(item.currentCoords.lat + latDelta).toFixed(4),
+              lng: +(item.currentCoords.lng + lngDelta).toFixed(4)
+            }
           };
         })
       );
-    }, 2000);
+    }, 2500);
+    return () => clearInterval(ticker);
+  }, []);
 
-    return () => clearInterval(timer);
-  }, [authenticatedUser, proximityAlert]);
-  // Keep inspected shipment view synced with live telemetry
-  useEffect(() => {
-    if (searchedShipment) {
-      const live = shipments.find(s => s.id === searchedShipment.id);
-      if (live) setSearchedShipment(live);
+  const activeShipment = shipments.find(s => s.id === selectedId) || shipments[0];
+
+  // Delivery Handover Attempt with Geofence Gate
+  const handleHandoverVerification = (enteredOtp) => {
+    if (activeShipment.remainingDistanceKm > 5.0) {
+      alert(`[SECURITY GEOFENCE LOCKOUT]\n\nVehicle is currently ${activeShipment.remainingDistanceKm} km from recipient doorstep.\nHandover authorization is strictly locked outside the 5 km boundary.`);
+      return false;
     }
-  }, [shipments]);
-
-  // Session timer countdown
-  useEffect(() => {
-    if (!authenticatedUser) return;
-    const sessionTimer = setInterval(() => {
-      setSessionTimeRemaining(prev => {
-        if (prev <= 1) {
-          setAuthenticatedUser(null);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(sessionTimer);
-  }, [authenticatedUser]);
-
-  // Compute Current Geodetic Location
-  const getCurrentLocationData = (shipment) => {
-    const route = GPS_ROUTES[shipment.routeKey];
-    if (!route) return { name: shipment.origin, lat: 0, lng: 0, distanceRemainingKm: 0, completedKm: 0, totalDistanceKm: 0 };
-
-    const pct = shipment.progressPct;
-    const waypoints = route.waypoints;
-    
-    let currentWp = waypoints[0];
-    for (let i = 0; i < waypoints.length; i++) {
-      if (pct >= waypoints[i].progress) {
-        currentWp = waypoints[i];
-      }
+    if (enteredOtp.trim() !== activeShipment.otp) {
+      alert("[HANDOVER REJECTED]\nInvalid recipient OTP code. Please verify with the customer.");
+      return false;
     }
 
-    const distanceRemainingKm = Math.max(0, Math.round(route.totalDistanceKm * (1 - pct / 100)));
-    return {
-      currentCheckpointName: currentWp.name,
-      lat: (currentWp.lat + (pct % 5) * 0.002).toFixed(4),
-      lng: (currentWp.lng + (pct % 5) * 0.002).toFixed(4),
-      distanceRemainingKm,
-      completedKm: Math.round(route.totalDistanceKm * (pct / 100)),
-      totalDistanceKm: route.totalDistanceKm
-    };
+    setShipments(prev =>
+      prev.map(s =>
+        s.id === activeShipment.id
+          ? { ...s, status: "DELIVERED", remainingDistanceKm: 0, speedKmh: 0, etaMinutes: 0 }
+          : s
+      )
+    );
+    alert(`[DELIVERY CONFIRMED]\nConsignment ${activeShipment.id} successfully completed and verified.`);
+    return true;
   };
 
-  // Login Authentication Handler
-  const handleLoginSubmit = (e) => {
+  // Satellite AI Handler
+  const handleAiAsk = (e) => {
     e.preventDefault();
-    if (!username.trim() || !password.trim()) {
-      setLoginError('Please enter both username and password.');
-      return;
-    }
+    if (!aiQuery.trim()) return;
 
-    const sessionToken = 'SHP-SEC-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+    const userText = aiQuery;
+    setAiChatLog(prev => [...prev, { sender: "user", text: userText }]);
+    setAiQuery("");
 
-    if (loginRole === 'CUSTOMER') {
-      setAuthenticatedUser({ id: 'cust_1', name: username, role: 'CUSTOMER', sessionToken });
-    } else if (loginRole === 'DELIVERY') {
-      setAuthenticatedUser({ id: 'drv_1', name: username || 'Karthik Raja', role: 'DELIVERY', sessionToken });
-    } else {
-      setAuthenticatedUser({ id: 'adm_1', name: username || 'Logistics Admin', role: 'ADMIN', sessionToken });
-    }
-
-    setSessionTimeRemaining(1800);
-    setLoginError('');
-  };
-
-  const handleLogout = () => {
-    setAuthenticatedUser(null);
-    setUsername('');
-    setPassword('');
-    setProximityAlert(null);
-  };
-
-  // Preset Credentials Helper
-  const fillPreset = (roleType, defaultName) => {
-    setLoginRole(roleType);
-    setUsername(defaultName);
-    setPassword('securepass123');
-    setLoginError('');
-  };
-
-  // Search Consignment Handler
-  const handleSearch = (idToSearch) => {
-    const query = (typeof idToSearch === 'string' ? idToSearch : searchTrackingId).trim().toUpperCase();
-    if (!query) return;
-
-    const found = shipments.find(s => s.id === query);
-    if (found) {
-      setSearchedShipment(found);
-      setSearchError(false);
-    } else {
-      setSearchedShipment(null);
-      setSearchError(true);
-    }
-  };
-
-  // Security Handover Verification (Geofence + Handover OTP)
-  const handleVerifyAndDeliver = (shipment) => {
-    const loc = getCurrentLocationData(shipment);
-    
-    if (loc.distanceRemainingKm > 5 && shipment.progressPct < 90) {
-      setSecurityError(`Geofence Lock Active: Vehicle is ${loc.distanceRemainingKm} km away. Delivery cannot be completed until the vehicle enters the destination geofence.`);
-      return;
-    }
-
-    if (enteredOtp.trim() !== shipment.deliveryOtp) {
-      setSecurityError(`Authentication Denied: Invalid recipient OTP. Please verify with the customer.`);
-      return;
-    }
-
-    setShipments(shipments.map(s => {
-      if (s.id === shipment.id) {
-        return {
-          ...s,
-          status: 'DELIVERED',
-          progressPct: 100,
-          speedKmph: 0
-        };
-      }
-      return s;
-    }));
-    setHandoverModalShipment(null);
-    setEnteredOtp('');
-    setSecurityError('');
-  };
-
-  // Grounded AI Query Parser
-  const handleSendAiMessage = (queryText) => {
-    const text = (queryText || chatInput).trim();
-    if (!text) return;
-
-    const newChat = [...chatMessages, { sender: 'user', text }];
-    setChatMessages(newChat);
-    setChatInput('');
-
+    // Regex extraction for consignment IDs (e.g., ST-849201)
+    const match = userText.match(/ST-\d{6}/i);
     setTimeout(() => {
-      const match = text.match(/ST-\d{6}/i);
-      let reply = "";
       if (match) {
         const found = shipments.find(s => s.id.toUpperCase() === match[0].toUpperCase());
         if (found) {
-          const loc = getCurrentLocationData(found);
-          reply = `🛰️ **Live Automated GPS Telemetry (${found.id})**:\n` +
-                  `• Status: **${found.status.replace(/_/g, ' ')}**\n` +
-                  `• Geodetic Fix: ${loc.lat}° N, ${loc.lng}° E\n` +
-                  `• Current Waypoint: **${loc.currentCheckpointName}**\n` +
-                  `• Live Velocity: ${found.speedKmph} km/h (Active Telemetry)\n` +
-                  `• Route Progress: ${loc.completedKm} km / ${loc.totalDistanceKm} km (${found.progressPct}%)\n` +
-                  `• Distance to Destination: **${loc.distanceRemainingKm} km remaining**\n` +
-                  `• Satellite Fix: Connected (${found.satellitesActive} DGPS Satellites)`;
-        } else {
-          reply = `⚠️ Access Guard: Consignment "${match[0]}" is not registered in the active database.`;
+          setAiChatLog(prev => [
+            ...prev,
+            {
+              sender: "ai",
+              text: `Satellite Fix for [${found.id}]: Status is ${found.status}. Speed: ${found.speedKmh} km/h. Location: ${found.currentCoords.lat}°N, ${found.currentCoords.lng}°E. Remaining Distance: ${found.remainingDistanceKm} km (~${found.etaMinutes} mins to destination).`
+            }
+          ]);
+          return;
         }
-      } else {
-        reply = `I am grounded in live GPS telemetry. Ask *"Where is ST-849201?"* or check satellite fix status.`;
       }
-      setChatMessages([...newChat, { sender: 'bot', text: reply }]);
-    }, 300);
+      setAiChatLog(prev => [
+        ...prev,
+        {
+          sender: "ai",
+          text: `ShipTrack query processed. Please specify an active consignment tag like 'ST-849201' or 'ST-592184' to retrieve live telemetry.`
+        }
+      ]);
+    }, 400);
+  };
+  // RFC 4180 CSV Export
+  const handleExportCsv = () => {
+    const headers = ["Consignment_ID,Customer,Status,Remaining_KM,Speed_KMH,Current_Lat,Current_Lng,Assigned_Courier,OTP_Verified"];
+    const rows = shipments.map(s =>
+      `"${s.id}","${s.customerName}","${s.status}",${s.remainingDistanceKm},${s.speedKmh},${s.currentCoords.lat},${s.currentCoords.lng},"${s.assignedCourier}","${s.status === 'DELIVERED' ? 'YES' : 'PENDING'}"`
+    );
+    const blob = new Blob([[...headers, ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `ShipTrack_Telemetry_Audit_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const activeLoc = searchedShipment ? getCurrentLocationData(searchedShipment) : null;
-
-  // =========================================================================
-  // SCREEN 0: AUTHENTICATION / LOGIN GATEWAY SCREEN
-  // =========================================================================
-  if (!authenticatedUser) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6">
-          
-          <div className="text-center space-y-2">
-            <div className="inline-flex p-3 rounded-2xl bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 shadow-lg shadow-cyan-500/10 mb-2">
-              <Navigation className="w-8 h-8 animate-pulse" />
-            </div>
-            <h1 className="text-2xl font-black tracking-tight text-white">ShipTrack Security Portal</h1>
-            <p className="text-xs text-slate-400">Automated Vehicle Satellite Telemetry & Access Control</p>
-          </div>
-
-          {/* Role Picker Buttons */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-mono font-bold text-slate-400 uppercase">Select Access Portal Role</label>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setLoginRole('CUSTOMER')}
-                className={`py-2.5 px-2 rounded-xl text-xs font-bold transition flex flex-col items-center justify-center space-y-1 border ${
-                  loginRole === 'CUSTOMER'
-                    ? 'bg-cyan-600 border-cyan-400 text-white shadow-md'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                <UserCheck className="w-4 h-4" />
-                <span>Customer</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setLoginRole('DELIVERY')}
-                className={`py-2.5 px-2 rounded-xl text-xs font-bold transition flex flex-col items-center justify-center space-y-1 border ${
-                  loginRole === 'DELIVERY'
-                    ? 'bg-cyan-600 border-cyan-400 text-white shadow-md'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                <Truck className="w-4 h-4" />
-                <span>Delivery Person</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setLoginRole('ADMIN')}
-                className={`py-2.5 px-2 rounded-xl text-xs font-bold transition flex flex-col items-center justify-center space-y-1 border ${
-                  loginRole === 'ADMIN'
-                    ? 'bg-cyan-600 border-cyan-400 text-white shadow-md'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Admin</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Login Form */}
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-mono text-slate-400 mb-1">Username / Identifier</label>
-              <div className="relative">
-                <User className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
-                <input
-                  type="text"
-                  required
-                  placeholder={loginRole === 'CUSTOMER' ? 'e.g. Rahul Sharma' : (loginRole === 'DELIVERY' ? 'e.g. Karthik Raja' : 'e.g. Admin Supervisor')}
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:ring-2 focus:ring-cyan-500 font-mono transition"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-mono text-slate-400 mb-1">Password</label>
-              <div className="relative">
-                <Key className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white outline-none focus:ring-2 focus:ring-cyan-500 font-mono transition"
-                />
-              </div>
-            </div>
-            {loginError && (
-              <div className="text-[11px] text-red-400 bg-red-950/60 border border-red-800 p-2.5 rounded-xl flex items-center space-x-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{loginError}</span>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 rounded-xl text-xs transition shadow-lg shadow-cyan-600/30 flex items-center justify-center space-x-2"
-            >
-              <Lock className="w-4 h-4" />
-              <span>Authenticate & Enter {loginRole.replace('_', ' ')} Portal</span>
-            </button>
-          </form>
-
-          {/* Quick Demo Autofill Chips */}
-          <div className="pt-2 border-t border-slate-800/80">
-            <span className="text-[11px] text-slate-500 block mb-2 font-mono">1-Click Demo Credentials:</span>
-            <div className="flex flex-wrap gap-2 text-[11px]">
-              <button
-                type="button"
-                onClick={() => fillPreset('CUSTOMER', 'Rahul Sharma')}
-                className="bg-slate-950 hover:bg-slate-800 border border-slate-800 px-2.5 py-1 rounded-lg text-slate-300"
-              >
-                Customer Demo
-              </button>
-              <button
-                type="button"
-                onClick={() => fillPreset('DELIVERY', 'Karthik Raja')}
-                className="bg-slate-950 hover:bg-slate-800 border border-slate-800 px-2.5 py-1 rounded-lg text-slate-300"
-              >
-                Delivery Person Demo
-              </button>
-              <button
-                type="button"
-                onClick={() => fillPreset('ADMIN', 'Logistics Supervisor')}
-                className="bg-slate-950 hover:bg-slate-800 border border-slate-800 px-2.5 py-1 rounded-lg text-slate-300"
-              >
-                Admin Demo
-              </button>
-            </div>
-          </div>
-
-        </div>
-      </div>
-    );
-  }
-
-  // =========================================================================
-  // AUTHENTICATED APPLICATION INTERFACE
-  // =========================================================================
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      
-      {/* 5 KM PROXIMITY NOTIFICATION TOAST BANNER */}
-      {proximityAlert && (
-        <div className="bg-gradient-to-r from-amber-600 to-orange-600 text-white px-4 py-3 shadow-2xl flex items-center justify-between border-b border-amber-400 sticky top-0 z-50 animate-pulse">
-          <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Bell className="w-5 h-5 text-white animate-bounce" />
-              <div className="text-xs">
-                <span className="font-black uppercase tracking-wider font-mono mr-2">🔔 5 KM PROXIMITY ALERT:</span>
-                <span>{proximityAlert.message} (Recipient Handover OTP: <strong>{searchedShipment?.deliveryOtp}</strong>)</span>
-              </div>
-            </div>
-            <button
-              onClick={() => setProximityAlert(null)}
-              className="bg-black/20 hover:bg-black/40 text-white rounded-lg p-1 text-xs"
-            >
-              <X className="w-4 h-4" />
-            </button>
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col justify-between">
+      {/* Top Global Navigation Bar */}
+      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40 px-6 py-4 flex flex-wrap justify-between items-center gap-4">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg bg-sky-500/20 border border-sky-400 flex items-center justify-center text-sky-400 font-black text-xl">
+            S
+          </div>
+          <div>
+            <h1 className="font-bold text-lg text-slate-100 flex items-center gap-2">
+              ShipTrack <span className="text-xs bg-sky-500/20 text-sky-400 border border-sky-500/30 px-2 py-0.5 rounded font-mono">GNSS TELEMETRY</span>
+            </h1>
+            <p className="text-xs text-slate-400">Continuous Satellite Radar & Geofence Gate</p>
           </div>
         </div>
-      )}
 
-      {/* TOP HEADER & ROLE STATUS */}
-      <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-40 shadow-xl">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          
-          <div className="flex items-center space-x-3">
-            <div className="bg-gradient-to-tr from-cyan-500 to-blue-600 p-2.5 rounded-xl shadow-lg shadow-cyan-500/20">
-              <Navigation className="w-5 h-5 text-white animate-pulse" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="text-xl font-black tracking-tight text-white">ShipTrack</span>
-                <span className="text-[10px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded-full">
-                  GPS-TELEMETRY • PS-05
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400">Automated Vehicle Satellite Tracking & Security</p>
-            </div>
-          </div>
-
-          {/* ACTIVE USER SESSION BADGE & LOGOUT */}
-          <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2 text-[11px] font-mono bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-slate-400">
-              <Lock className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Token: <strong className="text-slate-200">{authenticatedUser.sessionToken.slice(0, 14)}...</strong></span>
-              <span className="text-slate-600">|</span>
-              <span className="text-amber-400">{Math.floor(sessionTimeRemaining / 60)}m left</span>
-            </div>
-
-            <div className="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
-              <span className="text-xs font-bold text-cyan-400">{authenticatedUser.name}</span>
-              <span className="text-[10px] font-mono bg-cyan-950 border border-cyan-800 text-cyan-300 px-2 py-0.5 rounded-md">
-                {authenticatedUser.role.replace('_', ' ')}
-              </span>
-            </div>
-
+        {/* Persona Switcher (RBAC) */}
+        <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-lg border border-slate-800">
+          <span className="text-xs text-slate-400 font-semibold px-2">Role:</span>
+          {["customer", "courier", "admin"].map(role => (
             <button
-              onClick={handleLogout}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-2 rounded-xl flex items-center space-x-1.5 transition"
-              title="Logout"
+              key={role}
+              onClick={() => setUserRole(role)}
+              className={`px-3 py-1 rounded text-xs font-semibold uppercase tracking-wider transition ${
+                userRole === role
+                  ? "bg-sky-600 text-white shadow-md shadow-sky-600/30"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+              }`}
             >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Logout</span>
+              {role === "courier" ? "Delivery Staff" : role}
             </button>
-          </div>
-
+          ))}
         </div>
       </header>
-      /* SATELLITE STATUS BAR */
-      <div className="bg-slate-900/60 border-b border-slate-800/80 px-4 py-2 text-xs">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-2">
-          <div className="flex items-center space-x-3 text-slate-400">
-            <span className="flex items-center space-x-1.5 text-emerald-400 font-mono font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-              <span>DGPS 3D FIX ACTIVE</span>
-            </span>
-            <span>•</span>
-            <span className="text-slate-300">Continuous GNSS Hardware Telemetry</span>
-            <span>•</span>
-            <span className="text-cyan-400 font-mono">Zero Manual Courier Checkpoints Needed</span>
+
+      {/* Main Container */}
+      <main className="max-w-6xl w-full mx-auto p-4 md:p-6 flex-1 space-y-6">
+        {/* Consignment Selector Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/50 p-3 rounded-lg border border-slate-800">
+          <div className="flex items-center gap-2">
+            <span className="text-xs uppercase text-slate-400 font-bold">Active Tracking ID:</span>
+            <div className="flex gap-2">
+              {shipments.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedId(s.id)}
+                  className={`px-3 py-1 rounded text-xs font-mono font-bold transition ${
+                    selectedId === s.id
+                      ? "bg-sky-500/20 text-sky-300 border border-sky-400"
+                      : "bg-slate-800 text-slate-400 border border-transparent hover:border-slate-700"
+                  }`}
+                >
+                  {s.id}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="flex items-center space-x-2 text-slate-400 font-mono text-[11px]">
-            <Signal className="w-3.5 h-3.5 text-cyan-400" />
-            <span>NMEA 0183 Protocol • 1.0 Hz Ping</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowWaybill(true)}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-xs font-semibold flex items-center gap-1.5 transition"
+            >
+              Print Waybill
+            </button>
+            {userRole === "admin" && (
+              <button
+                onClick={handleExportCsv}
+                className="px-3 py-1.5 bg-emerald-700/80 hover:bg-emerald-600 text-white rounded text-xs font-semibold flex items-center gap-1.5 transition"
+              >
+                Export CSV Ledger
+              </button>
+            )}
           </div>
         </div>
-      </div>
-
-      {/* MAIN CONTAINER (LOADS VIEW ACCORDING TO AUTHENTICATED ROLE) */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
-
-        {/* =========================================================================
-            ROLE 1: CUSTOMER VIEW (MATCHES IMAGE 1 & IMAGE 2)
-            ========================================================================= */}
-        {authenticatedUser.role === 'CUSTOMER' && (
+        {/* ======================================================== */}
+        {/* ROLE 1: CUSTOMER VIEW                                    */}
+        {/* ======================================================== */}
+        {userRole === "customer" && (
           <div className="space-y-6">
-            
-            {/* Search Bar + Quick Telemetry Chips */}
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-4">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
-                  <Search className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-500" />
-                  <input
-                    type="text"
-                    value={searchTrackingId}
-                    onChange={(e) => setSearchTrackingId(e.target.value)}
-                    placeholder="Enter Tracking Consignment ID (e.g. ST-849201)"
-                    className="w-full pl-11 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 transition"
-                  />
+            {/* STRICT NOTIFICATION: Only rendered for Customer within 5km */}
+            {activeShipment.remainingDistanceKm <= 5.0 && activeShipment.status !== "DELIVERED" ? (
+              <div className="p-4 bg-emerald-950/80 border-2 border-emerald-500 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-lg shadow-emerald-950/50 animate-pulse">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-emerald-400"></span>
+                    <h2 className="font-extrabold text-emerald-300 text-base md:text-lg">
+                      DOORSTEP PROXIMITY ALERT: Vehicle Approaching!
+                    </h2>
+                  </div>
+                  <p className="text-xs text-emerald-200/90 mt-1">
+                    Your courier is strictly within the 5 km destination perimeter ({activeShipment.remainingDistanceKm} km away).
+                    Estimated arrival in ~{activeShipment.etaMinutes} minutes.
+                  </p>
                 </div>
-                <button
-                  onClick={() => handleSearch()}
-                  className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-6 py-3 rounded-xl text-sm transition shadow-lg shadow-cyan-600/20"
-                >
-                  Query Satellite Radar
-                </button>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-slate-500 font-mono">Live Units on Transit:</span>
-                  {shipments.map(s => (
-                    <button
-                      key={s.id}
-                      onClick={() => {
-                        setSearchTrackingId(s.id);
-                        handleSearch(s.id);
-                      }}
-                      className={`px-3 py-1 rounded-lg border font-mono transition ${
-                        searchedShipment?.id === s.id
-                          ? 'bg-cyan-950 border-cyan-700 text-cyan-300 font-bold'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {s.id} • {s.status.replace(/_/g, ' ')} ({s.progressPct}%)
-                    </button>
-                  ))}
+                <div className="bg-slate-950/80 px-4 py-2 rounded-lg border border-emerald-500 text-right">
+                  <div className="text-[10px] uppercase text-emerald-400 font-bold tracking-widest">Secure Handover OTP</div>
+                  <div className="text-2xl font-mono font-black text-emerald-300 tracking-wider">
+                    {activeShipment.otp}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Share only at the doorstep</div>
                 </div>
-
-                {/* Instant 5 km Notification Trigger Button for Live Demo */}
-                <button
-                  onClick={() => {
-                    setProximityAlert({
-                      shipmentId: searchedShipment.id,
-                      distanceRemainingKm: 4.8,
-                      message: `Delivery vehicle for consignment ${searchedShipment.id} is now 4.8 km from your destination doorstep!`
-                    });
-                  }}
-                  className="bg-amber-950/80 hover:bg-amber-900 border border-amber-700 text-amber-300 px-3 py-1 rounded-lg font-mono text-[11px] flex items-center space-x-1"
-                >
-                  <Bell className="w-3 h-3 text-amber-400" />
-                  <span>Simulate 5 km Doorstep Alert</span>
-                </button>
               </div>
-            </div>
-
-            {searchError && (
-              <div className="bg-red-950/60 border border-red-800 p-4 rounded-xl text-red-300 text-sm flex items-center space-x-3">
-                <AlertCircle className="w-5 h-5 shrink-0 text-red-400" />
-                <span>Access Denied: Consignment "{searchTrackingId}" was not found in GNSS telemetry registry.</span>
+            ) : activeShipment.status !== "DELIVERED" ? (
+              <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 text-xs flex justify-between items-center">
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping"></span>
+                  In Highway Transit: Courier is {activeShipment.remainingDistanceKm} km away.
+                </span>
+                <span className="italic text-slate-500">
+                  Doorstep notification & OTP unlock automatically when vehicle is &le; 5 km away.
+                </span>
+              </div>
+            ) : (
+              <div className="p-4 bg-emerald-950/40 border border-emerald-600/50 rounded-lg text-emerald-300 text-sm font-semibold flex items-center gap-2">
+                This shipment was successfully delivered to your doorstep.
               </div>
             )}
 
-            {/* SCREEN 1 & 2: SATELLITE RADAR & AUTOMATED CHECKPOINT AUDIT LOG */}
-            {searchedShipment && activeLoc && (
-              <div className="space-y-6">
-                
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-                  
-                  {/* Card Header (Matches Image 1) */}
-                  <div className="p-6 border-b border-slate-800 flex flex-col md:flex-row justify-between md:items-center gap-4 bg-slate-900/80">
-                    <div>
-                      <div className="flex items-center space-x-3">
-                        <h2 className="text-2xl font-black font-mono tracking-tight text-white">{searchedShipment.id}</h2>
-                        <span className="bg-cyan-950 text-cyan-400 border border-cyan-800/80 text-xs px-2.5 py-1 rounded-full font-bold">
-                          {searchedShipment.status.replace(/_/g, ' ')}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-1">Vehicle Unit: <strong className="text-slate-200">{searchedShipment.vehicleReg}</strong> • Hardware GPS Transponder</p>
-                    </div>
-
-                    <div className="flex items-center space-x-3">
-                      <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800 text-right">
-                        <span className="text-[10px] uppercase font-mono text-slate-500 block">Recipient Verification OTP</span>
-                        <span className="text-base font-mono font-black text-cyan-400 tracking-widest">{searchedShipment.deliveryOtp}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* LIVE GEODETIC HIGHWAY RADAR TRACK (Matches Image 1) */}
-                  <div className="p-6 bg-slate-950 space-y-6 border-b border-slate-800">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center space-x-2">
-                        <Radio className="w-4 h-4 text-cyan-400 animate-spin" />
-                        <span className="text-xs font-mono font-bold uppercase text-slate-300">Live Geodetic Highway Radar</span>
-                      </div>
-                      <span className="text-xs font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-0.5 rounded-full">
-                        ● GPS Live: {searchedShipment.speedKmph} km/h
-                      </span>
-                    </div>
-
-                    <div className="relative py-4">
-                      <div className="h-2 bg-slate-800 rounded-full w-full"></div>
-                      
-                      <div 
-                        className="h-2 bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-400 rounded-full absolute top-4 left-0 transition-all duration-700 shadow-lg shadow-cyan-500/50"
-                        style={{ width: `${searchedShipment.progressPct}%` }}
-                      ></div>
-
-                      <div 
-                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-700 z-10 flex flex-col items-center"
-                        style={{ left: `${searchedShipment.progressPct}%` }}
-                      >
-                        <div className="bg-cyan-500 text-slate-950 p-2 rounded-full shadow-xl shadow-cyan-500/80 ring-4 ring-cyan-950 animate-bounce">
-                          <Truck className="w-4 h-4" />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                        <span className="text-[10px] text-slate-500 uppercase font-mono block">Current Waypoint</span>
-                        <span className="text-xs font-bold text-white mt-0.5 block truncate">{activeLoc.currentCheckpointName}</span>
-                      </div>
-
-                      <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                        <span className="text-[10px] text-slate-500 uppercase font-mono block">Satellite Coordinates</span>
-                        <span className="text-xs font-mono text-cyan-400 mt-0.5 block">{activeLoc.lat}° N, {activeLoc.lng}° E</span>
-                      </div>
-
-                      <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                        <span className="text-[10px] text-slate-500 uppercase font-mono block">Distance Traversed</span>
-                        <span className="text-xs font-bold text-white mt-0.5 block">{activeLoc.completedKm} km / {activeLoc.totalDistanceKm} km</span>
-                      </div>
-
-                      <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                        <span className="text-[10px] text-slate-500 uppercase font-mono block">Remaining to Destination</span>
-                        <span className="text-xs font-bold text-emerald-400 mt-0.5 block">{activeLoc.distanceRemainingKm} km remaining</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* AUTOMATED HIGHWAY CHECKPOINT LOG (Matches Image 2) */}
-                  <div className="p-6 bg-slate-900">
-                    <h3 className="text-xs font-bold font-mono uppercase text-slate-400 tracking-wider mb-4 flex items-center gap-2">
-                      <Activity className="w-4 h-4 text-cyan-400" />
-                      <span>Automated Highway Checkpoint Log (Hardware GPS Verified)</span>
-                    </h3>
-
-                    <div className="space-y-4">
-                      {GPS_ROUTES[searchedShipment.routeKey]?.waypoints.map((wp, index) => {
-                        const isReached = searchedShipment.progressPct >= wp.progress;
-                        return (
-                          <div key={index} className="flex items-start space-x-3 text-xs">
-                            <div className={`mt-0.5 w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] ${
-                              isReached ? 'bg-emerald-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-500'
-                            }`}>
-                              {isReached ? '✓' : index + 1}
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex justify-between items-center">
-                                <span className={`font-semibold ${isReached ? 'text-white' : 'text-slate-500'}`}>{wp.name}</span>
-                                <span className="font-mono text-[11px] text-slate-500">{wp.lat}° N, {wp.lng}° E</span>
-                              </div>
-                              <span className="text-[11px] text-slate-500">
-                                {isReached ? 'Passed via satellite geofence' : 'Upcoming highway waypoint'}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
+            {/* Live Synchronized Highway Radar Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-200">GNSS Highway Telemetry Feed</h3>
+                  <p className="text-xs text-slate-500 font-mono">Satellite: DGPS 3D Fix Active</p>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
-        {/* =========================================================================
-            ROLE 2: DELIVERY PERSON VIEW (MATCHES IMAGE 3)
-            ========================================================================= */}
-        {authenticatedUser.role === 'DELIVERY' && (
-          <div className="space-y-6">
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex justify-between items-center">
-              <div>
-                <span className="text-xs font-mono uppercase text-cyan-400">Driver Telemetry Console</span>
-                <h3 className="text-xl font-bold text-white mt-1">Operator: {authenticatedUser.name}</h3>
-                <p className="text-xs text-slate-400">Hardware GPS Unit Active • Automated Location Broadcast</p>
-              </div>
-              <span className="text-xs font-mono bg-emerald-950 text-emerald-300 border border-emerald-800 px-3 py-1 rounded-full">
-                OBD-II Telemetry Synced
-              </span>
-            </div>
-
-            <div className="space-y-4">
-              <h4 className="text-xs font-mono font-bold uppercase text-slate-400">Active Delivery Vehicles & Shipments</h4>
-              
-              {shipments.map(shipment => {
-                const loc = getCurrentLocationData(shipment);
-                return (
-                  <div key={shipment.id} className="bg-slate-900 border border-slate-800 p-5 rounded-xl flex flex-col md:flex-row justify-between md:items-center gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-black text-white text-base">{shipment.id}</span>
-                        <span className="text-xs bg-slate-800 text-slate-300 px-2.5 py-0.5 rounded-full font-mono">
-                          {shipment.status.replace(/_/g, ' ')}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400">To: <strong className="text-slate-200">{shipment.receiver}</strong> ({shipment.destination})</p>
-                      <p className="text-xs font-mono text-cyan-400">
-                        GPS Fix: {loc.lat}° N, {loc.lng}° E ({loc.distanceRemainingKm} km to recipient geofence)
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setHandoverModalShipment(shipment);
-                        setEnteredOtp('');
-                        setSecurityError('');
-                      }}
-                      className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg shadow-cyan-600/20"
-                    >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>Verify & Complete Handover</span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* =========================================================================
-            ROLE 3: ADMIN FLEET OVERSIGHT (MATCHES IMAGE 4)
-            ========================================================================= */}
-        {authenticatedUser.role === 'ADMIN' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <span className="text-xs text-slate-500 font-mono">Active Satellite Pings</span>
-                <p className="text-2xl font-black font-mono text-white mt-1">{shipments.length} Units</p>
-              </div>
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <span className="text-xs text-slate-500 font-mono">Telemetry Protocol</span>
-                <p className="text-2xl font-black font-mono text-cyan-400 mt-1">GNSS DGPS</p>
-              </div>
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <span className="text-xs text-slate-500 font-mono">Geofence Violations</span>
-                <p className="text-2xl font-black font-mono text-emerald-400 mt-1">0 Blocked</p>
-              </div>
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <span className="text-xs text-slate-500 font-mono">Encryption Status</span>
-                <p className="text-2xl font-black font-mono text-purple-400 mt-1">AES-GCM</p>
-              </div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 font-mono text-xs font-bold text-slate-300">
-                Master Automated GNSS Telemetry Ledger
-              </div>
-              <table className="w-full text-left text-xs font-mono text-slate-400">
-                <thead className="bg-slate-950 text-slate-500 border-b border-slate-800">
-                  <tr>
-                    <th className="p-3">Consignment ID</th>
-                    <th className="p-3">Vehicle Plate</th>
-                    <th className="p-3">Current Coordinates</th>
-                    <th className="p-3">Speed</th>
-                    <th className="p-3">Progress</th>
-                    <th className="p-3">Security State</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {shipments.map(s => {
-                    const loc = getCurrentLocationData(s);
-                    return (
-                      <tr key={s.id} className="hover:bg-slate-800/40">
-                        <td className="p-3 font-bold text-white">{s.id}</td>
-                        <td className="p-3 text-cyan-400">{s.vehicleReg}</td>
-                        <td className="p-3">{loc.lat}° N, {loc.lng}° E</td>
-                        <td className="p-3 text-emerald-400">{s.speedKmph} km/h</td>
-                        <td className="p-3">{s.progressPct}%</td>
-                        <td className="p-3">
-                          <span className="text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800 text-[10px]">
-                            LOCKED (OTP REQUIRED)
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-      </main>
-      {/* SECURITY GEOFENCE & OTP HANDOVER MODAL */}
-      {handoverModalShipment && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <div className="flex items-center space-x-2">
-                <ShieldAlert className="w-5 h-5 text-cyan-400" />
-                <h3 className="font-bold text-white text-sm">Security Handover Protocol</h3>
-              </div>
-              <button onClick={() => setHandoverModalShipment(null)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
-                <span className="text-slate-400 block font-mono">Consignment: {handoverModalShipment.id}</span>
-                <span className="text-slate-400 block font-mono">Recipient: {handoverModalShipment.receiver}</span>
-                <span className="text-emerald-400 block font-mono">
-                  Distance to Geofence: {getCurrentLocationData(handoverModalShipment).distanceRemainingKm} km
+                <span className={`text-xs px-2.5 py-1 rounded-full font-bold font-mono ${
+                  activeShipment.status === "DELIVERED" ? "bg-emerald-900 text-emerald-200" : "bg-sky-900 text-sky-200"
+                }`}>
+                  {activeShipment.status}
                 </span>
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">Enter Customer Delivery OTP</label>
-                <input
-                  type="text"
-                  maxLength={4}
-                  placeholder="Enter 4-digit code"
-                  value={enteredOtp}
-                  onChange={(e) => setEnteredOtp(e.target.value)}
-                  className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-center font-mono font-bold text-lg text-cyan-400 tracking-widest focus:ring-2 focus:ring-cyan-500 outline-none"
-                />
-              </div>
-
-              {securityError && (
-                <div className="bg-red-950/80 border border-red-800 p-2.5 rounded-lg text-red-300 text-[11px]">
-                  {securityError}
+              {/* 4 Shared Telemetry Telemetry Tiles */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                  <div className="text-[11px] text-slate-400">Remaining Distance</div>
+                  <div className="text-xl font-bold font-mono text-sky-400">{activeShipment.remainingDistanceKm} km</div>
                 </div>
-              )}
-            </div>
-
-            <div className="flex justify-end space-x-2 pt-2">
-              <button
-                onClick={() => setHandoverModalShipment(null)}
-                className="px-4 py-2 rounded-xl border border-slate-800 text-xs text-slate-400 hover:bg-slate-800"
-              >
-                Abort
-              </button>
-              <button
-                onClick={() => handleVerifyAndDeliver(handoverModalShipment)}
-                className="px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-lg shadow-cyan-600/30"
-              >
-                Cryptographic Handover Unlock
-              </button>
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                  <div className="text-[11px] text-slate-400">Highway Speed</div>
+                  <div className="text-xl font-bold font-mono text-slate-100">{activeShipment.speedKmh} km/h</div>
+                </div>
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                  <div className="text-[11px] text-slate-400">Latitude</div>
+                  <div className="text-lg font-bold font-mono text-slate-200">{activeShipment.currentCoords.lat}° N</div>
+                </div>
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                  <div className="text-[11px] text-slate-400">Longitude</div>
+                  <div className="text-lg font-bold font-mono text-slate-200">{activeShipment.currentCoords.lng}° E</div>
+                </div>
+              </div>
+              {/* Milestone Progress Bar */}
+              <div>
+                <div className="flex justify-between text-xs text-slate-400 mb-1.5">
+                  <span>Progress ({activeShipment.origin})</span>
+                  <span>{activeShipment.destination}</span>
+                </div>
+                <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                  <div
+                    className="bg-sky-500 h-full transition-all duration-700"
+                    style={{
+                      width: activeShipment.status === "DELIVERED"
+                        ? "100%"
+                        : `${Math.min(95, Math.max(5, ((activeShipment.totalDistanceKm - activeShipment.remainingDistanceKm) / activeShipment.totalDistanceKm) * 100))}%`
+                    }}
+                  ></div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* FLOATING SATELLITE AI ASSISTANT */}
+        {/* ======================================================== */}
+        {/* ROLE 2: COURIER / DELIVERY STAFF VIEW                     */}
+        {/* ======================================================== */}
+        {userRole === "courier" && (
+          <CourierSection
+            shipment={activeShipment}
+            onVerify={handleHandoverVerification}
+          />
+        )}
+
+        {/* ======================================================== */}
+        {/* ROLE 3: ADMIN VIEW                                       */}
+        {/* ======================================================== */}
+        {userRole === "admin" && (
+          <AdminSection shipments={shipments} />
+        )}
+      </main>
+
+      {/* Floating Satellite AI Assistant */}
       <div className="fixed bottom-6 right-6 z-50">
-        {!isAiOpen ? (
+        {!showAiModal ? (
           <button
-            onClick={() => setIsAiOpen(true)}
-            className="flex items-center space-x-2 bg-cyan-600 hover:bg-cyan-500 text-white px-5 py-3.5 rounded-full shadow-2xl transition shadow-cyan-600/40"
+            onClick={() => setShowAiModal(true)}
+            className="bg-sky-600 hover:bg-sky-500 text-white px-4 py-2.5 rounded-full shadow-xl flex items-center gap-2 text-xs font-bold transition transform hover:scale-105"
           >
-            <Bot className="w-5 h-5" />
-            <span className="text-xs font-bold tracking-wide">Satellite AI</span>
+            Satellite AI Copilot
           </button>
         ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-80 sm:w-96 flex flex-col h-[430px] overflow-hidden">
-            <div className="bg-cyan-600 text-white p-3.5 flex justify-between items-center text-xs font-bold">
-              <div className="flex items-center space-x-2">
-                <Bot className="w-4 h-4" />
-                <span>GPS Telemetry Assistant</span>
-              </div>
-              <button onClick={() => setIsAiOpen(false)} className="hover:opacity-80">
-                <X className="w-4 h-4" />
+          <div className="bg-slate-900 border border-slate-700 w-80 md:w-96 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="p-3 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
+              <span className="text-xs font-bold text-sky-400">Satellite AI Telemetry Copilot</span>
+              <button
+                onClick={() => setShowAiModal(false)}
+                className="text-slate-400 hover:text-white text-sm"
+              >
+                ✕
               </button>
             </div>
-
-            <div className="flex-1 p-3.5 overflow-y-auto space-y-2.5 text-xs font-mono">
-              {chatMessages.map((msg, i) => (
-                <div key={i} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`p-3 rounded-2xl whitespace-pre-line max-w-[85%] ${
-                    msg.sender === 'user'
-                      ? 'bg-cyan-600 text-white rounded-tr-none'
-                      : 'bg-slate-950 border border-slate-800 text-slate-200 rounded-tl-none'
-                  }`}>
-                    {msg.text}
-                  </div>
+            <div className="p-3 h-60 overflow-y-auto space-y-2 text-xs font-sans">
+              {aiChatLog.map((chat, idx) => (
+                <div
+                  key={idx}
+                  className={`p-2 rounded ${
+                    chat.sender === "ai"
+                      ? "bg-slate-950 border border-slate-800 text-slate-200"
+                      : "bg-sky-950 border border-sky-800 text-sky-200 ml-6"
+                  }`}
+                >
+                  {chat.text}
                 </div>
               ))}
             </div>
-            <form onSubmit={(e) => { e.preventDefault(); handleSendAiMessage(); }} className="p-2.5 border-t border-slate-800 flex gap-1.5 bg-slate-950">
+            <form onSubmit={handleAiAsk} className="p-2 border-t border-slate-800 flex gap-2 bg-slate-950">
               <input
                 type="text"
-                placeholder="Where is ST-849201?..."
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 font-mono"
+                value={aiQuery}
+                onChange={(e) => setAiQuery(e.target.value)}
+                placeholder="Ask e.g. Where is ST-849201?"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-sky-500"
               />
-              <button type="submit" className="bg-cyan-600 text-white p-2.5 rounded-xl hover:bg-cyan-500">
-                <Send className="w-3.5 h-3.5" />
+              <button
+                type="submit"
+                className="bg-sky-600 hover:bg-sky-500 text-white px-3 py-1.5 rounded text-xs font-semibold"
+              >
+                Send
               </button>
             </form>
           </div>
         )}
       </div>
+      {/* Code-128 Printable Waybill Modal */}
+      {showWaybill && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white text-slate-900 p-6 rounded-lg max-w-md w-full font-mono text-xs space-y-4">
+            <div className="flex justify-between items-start border-b pb-3">
+              <div>
+                <h2 className="text-lg font-black tracking-tight">SHIPTRACK WAYBILL</h2>
+                <p className="text-[10px] text-slate-600">Standard Code-128 Domestic Logistics</p>
+              </div>
+              <button
+                onClick={() => setShowWaybill(false)}
+                className="text-slate-500 hover:text-black text-base font-sans"
+              >
+                ✕
+              </button>
+            </div>
 
+            {/* Simulated Code-128 Barcode */}
+            <div className="text-center py-2 bg-slate-100 border rounded">
+              <div className="tracking-[6px] text-2xl font-black font-mono select-none">
+                ||| | |||| | ||| |||| | | |||
+              </div>
+              <div className="text-[10px] tracking-widest text-slate-700 mt-1 font-bold">
+                *{activeShipment.id}*
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-[11px] border-b pb-3">
+              <div>
+                <span className="text-slate-500 block text-[9px] uppercase">Origin</span>
+                <span className="font-bold">{activeShipment.origin}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[9px] uppercase">Destination</span>
+                <span className="font-bold">{activeShipment.destination}</span>
+              </div>
+            </div>
+
+            <div className="text-[11px] space-y-1">
+              <div><span className="text-slate-500">Recipient:</span> {activeShipment.customerName}</div>
+              <div><span className="text-slate-500">Address:</span> {activeShipment.recipientAddress}</div>
+              <div><span className="text-slate-500">Contact:</span> {activeShipment.customerPhone}</div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2 font-sans">
+              <button
+                onClick={() => window.print()}
+                className="px-3 py-1.5 bg-black text-white rounded text-xs font-semibold hover:bg-slate-800"
+              >
+                Print Waybill
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className="border-t border-slate-800 p-4 text-center text-xs text-slate-500 font-mono">
+        ShipTrack Real-Time GNSS Telemetry Engine &bull; Deployed at shiptrack-live.onrender.com
+      </footer>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------
+// COURIER VIEW COMPONENT (Includes Geofence Lockout Gate)
+// -------------------------------------------------------------
+function CourierSection({ shipment, onVerify }) {
+  const [inputOtp, setInputOtp] = useState("");
+  const isOutsideGeofence = shipment.remainingDistanceKm > 5.0;
+
+  return (
+    <div className="space-y-6">
+      {/* Geofence Status Header (NO customer notification shown here) */}
+      <div className={`p-4 rounded-xl border ${
+        isOutsideGeofence ? "bg-amber-950/30 border-amber-600/50" : "bg-emerald-950/30 border-emerald-500/50"
+      }`}>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className={`h-2.5 w-2.5 rounded-full ${isOutsideGeofence ? "bg-amber-400" : "bg-emerald-400"}`}></span>
+              <h3 className="font-bold text-sm">
+                {isOutsideGeofence ? "GEOFENCE STATUS: LOCKED (OVER 5 KM AWAY)" : "GEOFENCE STATUS: UNLOCKED (DOORSTEP PROXIMITY)"}
+              </h3>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Current Telemetry: <span className="font-mono text-slate-200">{shipment.remainingDistanceKm} km</span> remaining | Coords: <span className="font-mono text-slate-200">{shipment.currentCoords.lat}°N, {shipment.currentCoords.lng}°E</span>
+            </p>
+          </div>
+          <span className={`text-[11px] font-bold px-3 py-1 rounded font-mono uppercase ${
+            isOutsideGeofence ? "bg-amber-900/60 text-amber-200 border border-amber-700" : "bg-emerald-900/60 text-emerald-200 border border-emerald-700"
+          }`}>
+            {isOutsideGeofence ? "Handover Disabled" : "Handover Permitted"}
+          </span>
+        </div>
+      </div>
+      {/* Handover Action Card */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <h3 className="text-sm font-bold text-slate-200 border-b border-slate-800 pb-2">
+          Doorstep Handover Verification
+        </h3>
+
+        {shipment.status === "DELIVERED" ? (
+          <div className="p-4 bg-emerald-950/40 border border-emerald-700/60 rounded-lg text-emerald-300 text-center font-bold text-sm">
+            Parcel Handover Complete & Cryptographically Verified
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-xs text-slate-400">
+              The recipient will provide a private 4-digit code upon arrival. The system validates this code in real time against geofence parameters.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="text"
+                maxLength={4}
+                value={inputOtp}
+                onChange={(e) => setInputOtp(e.target.value)}
+                placeholder="4-digit OTP"
+                className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 font-mono text-lg text-center tracking-widest text-slate-100 focus:outline-none focus:border-sky-500 w-36"
+              />
+              <button
+                onClick={() => onVerify(inputOtp)}
+                className="px-5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition shadow-md shadow-sky-600/30"
+              >
+                Verify & Complete Handover
+              </button>
+            </div>
+            {isOutsideGeofence && (
+              <p className="text-[11px] text-amber-400/90 italic">
+                * Note: Submitting will trigger an intentional geofence rejection error because remaining distance is &gt; 5 km.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------
+// ADMIN VIEW COMPONENT (Fleet Ledger)
+// -------------------------------------------------------------
+function AdminSection({ shipments }) {
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-sm font-bold text-slate-200">Centralized Fleet Telemetry Ledger</h2>
+          <p className="text-xs text-slate-500">Live multi-vehicle status monitoring and geofence compliance</p>
+        </div>
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-950 text-slate-400 uppercase font-mono border-b border-slate-800">
+              <tr>
+                <th className="p-3">Consignment ID</th>
+                <th className="p-3">Customer</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Remaining Dist</th>
+                <th className="p-3">Coordinates</th>
+                <th className="p-3">Assigned Courier</th>
+                <th className="p-3">Geofence Compliance</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800 font-mono">
+              {shipments.map(s => (
+                <tr key={s.id} className="hover:bg-slate-800/40">
+                  <td className="p-3 font-bold text-sky-400">{s.id}</td>
+                  <td className="p-3 font-sans text-slate-200">{s.customerName}</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      s.status === "DELIVERED" ? "bg-emerald-950 text-emerald-300 border border-emerald-800" : "bg-sky-950 text-sky-300 border border-sky-800"
+                    }`}>
+                      {s.status}
+                    </span>
+                  </td>
+                  <td className="p-3 text-slate-300">{s.remainingDistanceKm} km</td>
+                  <td className="p-3 text-slate-400">{s.currentCoords.lat}°N, {s.currentCoords.lng}°E</td>
+                  <td className="p-3 font-sans text-slate-300">{s.assignedCourier}</td>
+                  <td className="p-3">
+                    {s.remainingDistanceKm <= 5.0 ? (
+                      <span className="text-emerald-400 font-bold">&le; 5km (Doorstep Zone)</span>
+                    ) : (
+                      <span className="text-amber-400">&gt; 5km (Highway Locked)</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
